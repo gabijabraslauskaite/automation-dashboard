@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automatizacijų valdymas</title>
+  <style>
+    :root {
+      font-family: Inter, system-ui, sans-serif;
+      color: #192b27;
+      background: #f3f6f3;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .55; }
+    button:focus-visible, input:focus-visible {
+      outline: 3px solid #84c6a8;
+      outline-offset: 3px;
+    }
+    main { max-width: 1100px; margin: auto; padding: 42px 24px; }
+    .brand {
+      font-weight: 800; letter-spacing: -.5px;
+      margin-bottom: 55px; font-size: 22px;
+    }
+    .brand span { color: #26845e; }
+    header {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 20px;
+    }
+    .eyebrow {
+      font-size: 12px; letter-spacing: 2px;
+      font-weight: 700; color: #56816c;
+    }
+    h1 { font-size: clamp(30px, 5vw, 44px); margin: 10px 0; letter-spacing: -1.5px; }
+    .subtitle { color: #6d7c74; line-height: 1.6; }
+    .button {
+      border: 1px solid #d5dfd7; background: white;
+      padding: 12px 18px; border-radius: 12px; font-weight: 600;
+    }
+    .stats {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 16px; margin: 30px 0;
+    }
+    .stat, .access, article {
+      background: white; border: 1px solid #e0e7df; border-radius: 18px;
+    }
+    .stat { padding: 23px; }
+    .stat span { display: block; color: #718077; font-size: 14px; }
+    .stat strong { display: block; font-size: 32px; margin-top: 8px; }
+    .access {
+      display: flex; align-items: center; gap: 16px;
+      flex-wrap: wrap; padding: 20px; margin-bottom: 24px;
+    }
+    .access label { font-weight: 600; }
+    .access input {
+      flex: 1; min-width: 180px; border: 1px solid #d5dfd7;
+      padding: 12px; border-radius: 10px;
+    }
+    .hint { width: 100%; margin: 0; color: #718077; font-size: 13px; }
+    #message { min-height: 25px; margin: 12px 0; color: #486c59; }
+    #message.error { color: #b33838; }
+    #list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    article { padding: 26px; }
+    .card-top { display: flex; justify-content: space-between; align-items: center; }
+    .icon {
+      background: #edf5ed; color: #39795a;
+      border-radius: 12px; padding: 10px 14px; font-size: 24px;
+    }
+    .badge { padding: 6px 11px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .on { background: #e5f5e9; color: #237545; }
+    .off { background: #f0f1ef; color: #737b73; }
+    h2 { margin: 23px 0 8px; font-size: 22px; }
+    .description { color: #718077; min-height: 42px; line-height: 1.5; }
+    .updated { font-size: 12px; color: #7a867e; margin: 20px 0; }
+    .toggle {
+      width: 100%; border: 0; padding: 13px;
+      border-radius: 11px; background: #203f32; color: white; font-weight: 600;
+    }
+    footer { text-align: center; color: #859087; margin-top: 40px; font-size: 12px; }
+    @media (max-width: 650px) {
+      main { padding: 25px 18px; }
+      .brand { margin-bottom: 32px; }
+      header { align-items: flex-start; flex-direction: column; }
+      #list { grid-template-columns: 1fr; }
+      .stats { gap: 8px; }
+      .stat { padding: 16px 10px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand">flow<span>desk.</span></div>
+
+  <header>
+    <div>
+      <div class="eyebrow">TAVO AUTOMATIZACIJŲ CENTRAS</div>
+      <h1>Mažiau darbo. Daugiau srauto.</h1>
+      <p class="subtitle">Stebėk ir valdyk savo n8n automatizacijas vienoje vietoje.</p>
+    </div>
+    <button class="button" id="refresh">↻ Atnaujinti</button>
+  </header>
+
+  <section class="stats" aria-label="Automatizacijų suvestinė">
+    <div class="stat"><span>Iš viso</span><strong id="total">—</strong></div>
+    <div class="stat"><span>Įjungtos</span><strong id="enabled">—</strong></div>
+    <div class="stat"><span>Išjungtos</span><strong id="disabled">—</strong></div>
+  </section>
+
+  <div class="access">
+    <label for="token">Valdymo kodas</label>
+    <input id="token" type="password" placeholder="Įvesk dashboard slaptą kodą"
+           autocomplete="off">
+    <p class="hint">Naudok X-Dashboard-Token kodą. Jis nesaugomas naršyklės saugykloje.</p>
+  </div>
+
+  <p id="message" role="status" aria-live="polite"></p>
+  <section id="list" aria-label="Automatizacijos"></section>
+  <footer>Flowdesk · Automatizacijų valdymas</footer>
+</main>
+
+<script>
+const GET_URL = "https://gabijabr.app.n8n.cloud/webhook/dashboard-automations";
+const POST_URL = "https://gabijabr.app.n8n.cloud/webhook/dashboard-toggle";
+
+const list = document.querySelector("#list");
+const refresh = document.querySelector("#refresh");
+const token = document.querySelector("#token");
+const message = document.querySelector("#message");
+
+let workflows = [];
+let busy = false;
+
+function notify(text, error = false) {
+  message.textContent = text;
+  message.classList.toggle("error", error);
+}
+
+function parseActive(value) {
+  if (value === true || String(value).toLowerCase() === "true") return true;
+  if (value === false || String(value).toLowerCase() === "false") return false;
+  throw new Error("Gauta neatpažinta automatizacijos būsena.");
+}
+
+async function request(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    signal: AbortSignal.timeout(45000)
+  });
+  if (!response.ok) {
+    if ([401, 403].includes(response.status)) {
+      throw new Error("Prieiga atmesta. Patikrink valdymo kodą.");
+    }
+    throw new Error("Serverio klaida: " + response.status);
+  }
+  return response.json();
+}
+
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function render() {
+  const enabled = workflows.filter(w => w.active).length;
+  document.querySelector("#total").textContent = workflows.length;
+  document.querySelector("#enabled").textContent = enabled;
+  document.querySelector("#disabled").textContent = workflows.length - enabled;
+  list.replaceChildren();
+
+  for (const workflow of workflows) {
+    const card = element("article");
+    const top = element("div", "card-top");
+    top.append(
+      element("span", "icon", "↗"),
+      element("span", "badge " + (workflow.active ? "on" : "off"),
+        workflow.active ? "● Įjungta" : "○ Išjungta")
+    );
+
+    const date = workflow.updated_at ? new Date(workflow.updated_at) : null;
+    const formatted = date && !Number.isNaN(date.getTime())
+      ? date.toLocaleString("lt-LT") : "Dar neatnaujinta";
+
+    const button = element("button", "toggle",
+      workflow.active ? "Išjungti automatizaciją" : "Įjungti automatizaciją");
+    button.disabled = busy;
+    button.addEventListener("click", () => toggle(workflow));
+
+    card.append(
+      top,
+      element("h2", "", workflow.name || "Automatizacija"),
+      element("p", "description", workflow.description || "Aprašymas nepridėtas."),
+      element("p", "updated", "Atnaujinta: " + formatted),
+      button
+    );
+    list.append(card);
+  }
+
+  refresh.disabled = busy;
+}
+
+async function load() {
+  if (busy) return;
+  busy = true;
+  render();
+  notify("Kraunami duomenys…");
+  try {
+    const data = await request(GET_URL);
+    if (!Array.isArray(data)) throw new Error("GET atsakymas turi būti sąrašas.");
+    const ids = new Set();
+    const next = data.map(row => {
+      if (!row.workflow_id || ids.has(String(row.workflow_id))) {
+        throw new Error("Lentelėje trūksta workflow_id arba ID kartojasi.");
+      }
+      ids.add(String(row.workflow_id));
+      return { ...row, workflow_id: String(row.workflow_id), active: parseActive(row.active) };
+    });
+    workflows = next;
+    notify(workflows.length ? "Duomenys atnaujinti." : "Lentelėje automatizacijų nėra.");
+  } catch (error) {
+    notify("Nepavyko gauti duomenų. " + error.message, true);
+  } finally {
+    busy = false;
+    render();
+  }
+}
+
+async function toggle(workflow) {
+  if (busy) return;
+  const secret = token.value.trim();
+  if (!secret) {
+    notify("Pirmiausia įvesk valdymo kodą.", true);
+    token.focus();
+    return;
+  }
+
+  const desired = !workflow.active;
+  busy = true;
+  render();
+  notify("Keičiama „" + workflow.name + "“ būsena…");
+
+  try {
+    const data = await request(POST_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Dashboard-Token": secret
+      },
+      body: JSON.stringify({
+        workflow_id: workflow.workflow_id,
+        active: desired
+      })
+    });
+
+    const result = Array.isArray(data)
+      ? data.find(row => String(row.workflow_id) === workflow.workflow_id)
+      : data;
+
+    if (!result || String(result.workflow_id) !== workflow.workflow_id ||
+        parseActive(result.active) !== desired) {
+      throw new Error("Serveris nepatvirtino prašytos būsenos.");
+    }
+
+    workflow.active = desired;
+    workflow.updated_at = result.updated_at;
+    notify("„" + workflow.name + "“ " + (desired ? "įjungta." : "išjungta."));
+  } catch (error) {
+    notify("Būsenos pakeitimas nepatvirtintas. " + error.message +
+      " Paspausk „Atnaujinti“, kad patikrintum duomenis.", true);
+  } finally {
+    busy = false;
+    render();
+  }
+}
+
+refresh.addEventListener("click", load);
+load();
+</script>
+</body>
+</html>
